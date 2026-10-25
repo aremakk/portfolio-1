@@ -16,9 +16,8 @@ python3 -m http.server 8765
 ## Разделы
 
 - **Первый экран** — WebGL-сцена, которая реагирует на курсор.
-- **Код становится опытом** — сцена на прокрутке: компонент собирается в интерфейс.
 - **Работы** — четыре кейса. У Workflow и Narxoz на обложках живые демо с тестовыми данными.
-- **Вклад, навыки, обо мне, контакты** — остальная страница, поиск по `⌘K` / `Ctrl+K`.
+- **Продукты, обо мне, контакты** — живые продукты TMK Techno Horizon, поиск по `⌘K` / `Ctrl+K`.
 
 ## Файлы
 
@@ -27,8 +26,8 @@ python3 -m http.server 8765
 | `outputs/index.html` | Разметка страницы |
 | `outputs/style.css` | Основные стили |
 | `outputs/scene.js` | Сцена на первом экране |
-| `outputs/scroll.js`, `outputs/scroll.css` | Сцена «Код становится опытом» |
 | `outputs/devices.js`, `outputs/devices.css` | Демо Workflow и Narxoz |
+| `outputs/aibek-yskak-resume.pdf` | Резюме для скачивания |
 | `outputs/main.js` | Анимация, фильтры, кейсы, поиск |
 | `outputs/projects.js` | Тексты кейсов, стек и ссылки на репозитории |
 

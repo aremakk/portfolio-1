@@ -60,10 +60,28 @@ class MatterScene {
       uniform float uAspect;
       uniform float uDpr;
       uniform float uPass;
+      uniform float uIntro;
+      uniform vec3 uWave;
       varying vec2 vUv;
       varying vec3 vNormal;
       varying vec3 vPosition;
       varying float vDepth;
+      varying float vReveal;
+      varying float vFront;
+      varying float vWave;
+      varying float vSpark;
+      varying float vSeed;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+      float revealAt(float x) {
+        return smoothstep(0., 1., clamp(uIntro * 1.75 - x * .75, 0., 1.));
+      }
+      float waveAt(float t) {
+        float d = abs(t - uWave.x) - uWave.y * 2.4;
+        return exp(-d * d * 5.) * exp(-uWave.y * 1.25) * uWave.z;
+      }
 
       mat3 rotateX(float a) {
         float c = cos(a), s = sin(a);
@@ -80,10 +98,11 @@ class MatterScene {
 
       vec3 surface(vec2 uv) {
         float t = (uv.x * 2.0 - 1.0) * 2.88;
-        float w = (uv.y * 2.0 - 1.0);
+        float reveal = revealAt(uv.x);
+        float w = (uv.y * 2.0 - 1.0) * mix(.04, 1., reveal);
         float beat = uTime * .16;
-        float twist = t * .58 + .36 + sin(beat) * .12;
-        float radius = 1.38 + .12 * sin(t * 2.0 + beat);
+        float twist = t * .58 + .36 + sin(beat) * .12 + (1. - reveal) * 2.2;
+        float radius = (1.38 + .12 * sin(t * 2.0 + beat)) * mix(.72, 1., reveal);
         // A broad open band turns over itself, exposing both sides of the grid.
         vec3 p = vec3(
           (radius + w * .76 * cos(twist)) * cos(t),
@@ -94,25 +113,43 @@ class MatterScene {
         p.y += sin(t * 1.4 + beat) * .13;
         float influence = exp(-pow(t - uPointer.x * 2.6, 2.0) * .85);
         p.z += influence * uPointer.y * .21;
-        mat3 rotation = rotateZ(-.29 + uScroll * .17) *
+        float wave = waveAt(t);
+        p.z += wave * .34;
+        p.y += wave * .07 * w;
+        float settle = (1. - uIntro) * (1. - uIntro);
+        mat3 rotation = rotateZ(-.29 + uScroll * .17 + settle * .8) *
           rotateX(.72 + sin(beat * .5) * .045 + uPointer.y * .05) *
           rotateY(-.48 + uPointer.x * .07 + uScroll * .28);
         return rotation * p;
       }
 
       void main() {
-        vec3 p = surface(aUv);
+        vec2 uv = aUv;
+        vSeed = hash(aUv);
+        vSpark = 0.;
+        // Sparks travel along the band; the time offset per seed keeps them from moving in step.
+        if (uPass > .5 && uPass < 1.5) {
+          uv.x = fract(aUv.x + uTime * (.018 + vSeed * .05));
+          vSpark = sin(uv.x * 3.14159) * revealAt(uv.x);
+        }
+        vec3 p = surface(uv);
         float e = .001;
-        vec3 tangent = surface(aUv + vec2(e, 0.)) - p;
-        vec3 bitangent = surface(aUv + vec2(0., e)) - p;
+        vec3 tangent = surface(uv + vec2(e, 0.)) - p;
+        vec3 bitangent = surface(uv + vec2(0., e)) - p;
         vNormal = normalize(cross(tangent, bitangent));
         vPosition = p;
-        vUv = aUv;
+        vUv = uv;
+        vReveal = revealAt(uv.x);
+        float front = uIntro * 1.75 - uv.x * .75;
+        vFront = (1. - smoothstep(0., .22, abs(front - .08))) * (1. - smoothstep(.88, 1., uIntro));
+        vWave = waveAt((uv.x * 2.0 - 1.0) * 2.88);
         float camera = 5.2;
         float depth = camera - p.z;
         float scale = 2.65;
-        gl_Position = vec4(p.x * scale / uAspect, p.y * scale, depth * 1.002 - .2002, depth);
-        gl_PointSize = (uPass > .5 ? 4.5 : 1.0) * uDpr * (5.0 / depth);
+        float lift = uPass > .5 ? .012 * depth : 0.;
+        gl_Position = vec4(p.x * scale / uAspect, p.y * scale, depth * 1.002 - .2002 - lift, depth);
+        float size = uPass > 1.5 ? 4.5 : uPass > .5 ? 2.4 + vSeed * 5.2 : 1.0;
+        gl_PointSize = size * uDpr * (5.0 / depth);
         vDepth = depth;
       }
     `;
@@ -120,10 +157,16 @@ class MatterScene {
       precision highp float;
       uniform float uPass;
       uniform float uDpr;
+      uniform float uTime;
       varying vec2 vUv;
       varying vec3 vNormal;
       varying vec3 vPosition;
       varying float vDepth;
+      varying float vReveal;
+      varying float vFront;
+      varying float vWave;
+      varying float vSpark;
+      varying float vSeed;
 
       float grid(vec2 uv, vec2 count, float thickness) {
         vec2 q = uv * count;
@@ -138,11 +181,20 @@ class MatterScene {
       void main() {
         vec3 pearl = vec3(.945, .910, .855);
         vec3 accent = vec3(.796, .694, .541);
-        if (uPass > .5) {
+        if (uPass > 1.5) {
           float d = length(gl_PointCoord - .5) * 2.;
-          float a = 1.0 - smoothstep(.65, 1.0, d);
+          float a = (1.0 - smoothstep(.65, 1.0, d)) * vReveal;
           if (a < .02) discard;
           gl_FragColor = vec4(accent, a * .95);
+          return;
+        }
+        if (uPass > .5) {
+          float d = length(gl_PointCoord - .5) * 2.;
+          float core = 1.0 - smoothstep(.0, .35, d);
+          float halo = pow(1.0 - clamp(d, 0., 1.), 3.);
+          float a = (core + halo * .8) * vSpark;
+          if (a < .01) discard;
+          gl_FragColor = vec4(mix(pearl, accent, vSeed), a);
           return;
         }
         vec3 n = normalize(vNormal);
@@ -155,14 +207,19 @@ class MatterScene {
         float major = grid(vUv, vec2(22., 7.), 1.2);
         float border = 1.0 - smoothstep(0., .009, min(min(vUv.x, 1.0-vUv.x), min(vUv.y, 1.0-vUv.y)));
         float lightness = .16 + diffuse * .46 + edge * .26;
-        float lines = max(fine * lightness, major * (lightness + .12));
+        float sweepPos = fract(vUv.x * .5 - uTime * .035) - .5;
+        float sweep = exp(-sweepPos * sweepPos * 60.);
+        float lines = max(fine * lightness, major * (lightness + .12 + sweep * .22));
         lines = max(lines, border * .75);
         // The nearly black body gives overlapping folds an actual silhouette.
         vec3 body = vec3(.045, .033, .024) + diffuse * vec3(.014, .012, .009);
         vec3 color = mix(body, pearl, clamp(lines, 0., .88));
+        float heat = clamp(vFront * 1.3 + vWave * .95, 0., 1.);
+        color = mix(color, accent * 1.25, heat * clamp(lines * 2.4, 0., 1.));
+        color += accent * heat * .16;
         float fade = (1.0 - smoothstep(3.8, 6.9, vDepth));
         color *= .7 + fade * .3;
-        gl_FragColor = vec4(color, .985);
+        gl_FragColor = vec4(color, .985 * smoothstep(0., .2, vReveal));
       }
     `;
 
@@ -242,8 +299,20 @@ class MatterScene {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.pointBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, nodes, gl.STATIC_DRAW);
     this.pointCount = nodes.length / 2;
+    const sparkCount = 320;
+    const sparks = new Float32Array(sparkCount * 2);
+    let seed = 7;
+    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < sparkCount; i++) {
+      sparks[i * 2] = random();
+      sparks[i * 2 + 1] = .04 + random() * .92;
+    }
+    this.sparkBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.sparkBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, sparks, gl.STATIC_DRAW);
+    this.sparkCount = sparkCount;
     this.attribute = gl.getAttribLocation(this.program, 'aUv');
-    this.uniforms = Object.fromEntries(['uTime', 'uScroll', 'uPointer', 'uAspect', 'uDpr', 'uPass']
+    this.uniforms = Object.fromEntries(['uTime', 'uScroll', 'uPointer', 'uAspect', 'uDpr', 'uPass', 'uIntro', 'uWave']
       .map((name) => [name, gl.getUniformLocation(this.program, name)]));
     gl.clearColor(0, 0, 0, 0);
     gl.enable(gl.DEPTH_TEST);
@@ -266,7 +335,7 @@ class MatterScene {
     this.gl?.viewport(0, 0, w, h);
   }
 
-  update(dt, elapsed, pointerNormalized = { x: 0, y: 0 }, scrollProgress = 0, reducedOrPaused = false) {
+  update(dt, elapsed, pointerNormalized = { x: 0, y: 0 }, scrollProgress = 0, reducedOrPaused = false, intro = 1, wave = null) {
     const gl = this.gl;
     if (!gl || !this.program || this.lost) return;
     const settle = 1 - Math.exp(-Math.min(dt || .016, .1) * 3.2);
@@ -282,6 +351,8 @@ class MatterScene {
     gl.uniform2f(this.uniforms.uPointer, this.pointer.x, this.pointer.y);
     gl.uniform1f(this.uniforms.uAspect, this.width / this.height);
     gl.uniform1f(this.uniforms.uDpr, this.dpr);
+    gl.uniform1f(this.uniforms.uIntro, Math.max(0, Math.min(intro, 1)));
+    gl.uniform3f(this.uniforms.uWave, wave?.x || 0, wave?.age ?? 9, reducedOrPaused ? 0 : wave?.strength || 0);
     gl.uniform1f(this.uniforms.uPass, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
     gl.enableVertexAttribArray(this.attribute);
@@ -289,12 +360,17 @@ class MatterScene {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     gl.disable(gl.BLEND);
     gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+    gl.enable(gl.BLEND);
+    gl.depthMask(false);
     gl.uniform1f(this.uniforms.uPass, 1);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.sparkBuffer);
+    gl.vertexAttribPointer(this.attribute, 2, gl.FLOAT, false, 0, 0);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.drawArrays(gl.POINTS, 0, this.sparkCount);
+    gl.uniform1f(this.uniforms.uPass, 2);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.pointBuffer);
     gl.vertexAttribPointer(this.attribute, 2, gl.FLOAT, false, 0, 0);
-    gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.depthMask(false);
     gl.drawArrays(gl.POINTS, 0, this.pointCount);
     gl.depthMask(true);
   }

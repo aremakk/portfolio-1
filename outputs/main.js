@@ -1,15 +1,36 @@
 import MatterScene from './scene.js';
 import { projects } from './projects.js';
 import { initDevices } from './devices.js';
-import { ScrollStory } from './scroll.js';
 
 initDevices();
+
+// Phones draw these marks as color emoji. A text-presentation selector keeps the drawn symbol.
+const textSymbols = /[←↑→↓↔↗↘↵↺⌂⌕⌘▤▦▮▰▷◉○●◫☷✓✕✳⧉Ⅱ]/g;
+function keepTextSymbols(node) {
+  if (!node) return;
+  if (node.nodeType === Node.TEXT_NODE) {
+    const value = node.nodeValue;
+    if (!value || !textSymbols.test(value)) { textSymbols.lastIndex = 0; return; }
+    textSymbols.lastIndex = 0;
+    const next = value.replace(textSymbols, (mark, index, source) => source.charCodeAt(index + mark.length) === 0xfe0e ? mark : mark + '\uFE0E');
+    if (next !== value) node.nodeValue = next;
+    return;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE || node.tagName === 'SCRIPT' || node.tagName === 'STYLE') return;
+  [...node.childNodes].forEach(keepTextSymbols);
+}
+keepTextSymbols(document.body);
+new MutationObserver(records => {
+  records.forEach(record => {
+    if (record.type === 'characterData') keepTextSymbols(record.target);
+    record.addedNodes.forEach(keepTextSymbols);
+  });
+}).observe(document.body, { childList: true, subtree: true, characterData: true });
 
 const $ = (s, scope = document) => scope.querySelector(s);
 const $$ = (s, scope = document) => [...scope.querySelectorAll(s)];
 const body = document.body;
 const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
-const scrollStory = new ScrollStory();
 const finePointer = matchMedia('(hover: hover) and (pointer: fine)');
 const clamp = (n, min = 0, max = 1) => Math.min(max, Math.max(min, n));
 const ease = t => 1 - Math.pow(1 - t, 5);
@@ -60,7 +81,7 @@ $$('[data-split]').forEach(line => {
     letter.textContent = character;
     mask.append(letter);
     line.append(mask);
-    letters.push({ element: letter, index: letterIndex++ });
+    letters.push({ element: letter, mask, index: letterIndex++, x: 0, y: 0, r: 0, heat: 0 });
     if (!motionPreference.matches) {
       letter.style.transform = 'translate3d(0, 110%, 0)';
       letter.style.opacity = '0';
@@ -69,6 +90,19 @@ $$('[data-split]').forEach(line => {
   });
 });
 const arrivals = $$('.hero-topline, .hero-title-meta, .hero-copy, .scene-caption, .hero-footer');
+const hero = $('.hero');
+const heroHeading = $('.hero-heading');
+const headlineMain = $('.headline-main');
+const headlineSerif = $('.headline-serif');
+let sceneIntro = motionPreference.matches ? 1 : 0;
+const wave = { x: 0, age: 9, strength: 0 };
+hero.addEventListener('pointerdown', event => {
+  if (paused || motionPreference.matches || event.target.closest('a, button')) return;
+  wave.x = clamp(event.clientX / innerWidth * 2 - 1, -1, 1) * 2.6;
+  wave.age = 0;
+  wave.strength = 1;
+  drawNeeded = true;
+});
 const reveals = $$('.reveal').map(element => ({ element, visible: false, t: 0, done: false }));
 const revealObserver = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
   entries.forEach(entry => {
@@ -107,14 +141,8 @@ function resize() {
   artRect = art.getBoundingClientRect();
   heroHeight = $('.hero').offsetHeight;
   maxScroll = Math.max(1, document.documentElement.scrollHeight - innerHeight);
-  scrollStory.resize();
   const dpr = Math.min(devicePixelRatio || 1, innerWidth < 760 ? 1.7 : 2) * quality;
   scene.resize(artRect.width, artRect.height, dpr);
-  const rect = $('.playground-scene').getBoundingClientRect();
-  labNode.tx = rect.width / 2;
-  labNode.ty = rect.height / 2;
-  labNode.x = labNode.tx;
-  labNode.y = labNode.ty;
   resizeNeeded = false;
   drawNeeded = true;
   cachedDpr = devicePixelRatio;
@@ -250,10 +278,9 @@ let results = [];
 const destinations = [
   { title: 'Первый экран', subtitle: 'Frontend with feeling', target: 'home', terms: 'начало frontend home', kind: 'section' },
   { title: 'Избранные проекты', subtitle: 'Личные проекты и командная работа', target: 'work', terms: 'работы projects кейсы', kind: 'section' },
-  { title: 'Командный вклад', subtitle: 'TMK · Narxoz · Fiztex', target: 'experience', terms: 'опыт experience сотрудничество fiztex физтех', kind: 'section' },
-  { title: 'Интерактивные навыки', subtitle: 'Компоненты · движение · API', target: 'skills', terms: 'навыки стек react typescript webgl motion api java', kind: 'section' },
-  { title: 'Обо мне', subtitle: 'Подход и краткое резюме', target: 'about', terms: 'about разработчик резюме', kind: 'section' },
-  { title: 'Контакты', subtitle: 'GitHub @aremakk', target: 'contact', terms: 'контакты связаться github', kind: 'section' },
+  { title: 'Рабочие продукты', subtitle: 'Extra Space · Workflow · BS Holding · Oi-Qaragai', target: 'experience', terms: 'опыт experience fiztex физтех вклад tmk techno horizon extraspace workflow narxoz oi-qaragai', kind: 'section' },
+  { title: 'Обо мне', subtitle: 'Айбек Ыскак · Алматы', target: 'about', terms: 'about разработчик резюме айбек ыскак aibek алматы equator tmk навыки стек', kind: 'section' },
+  { title: 'Контакты', subtitle: 'Почта и телефон', target: 'contact', terms: 'контакты связаться почта телефон', kind: 'section' },
   ...projects.map(project => ({ title: project.title, subtitle: project.category, target: project.id, terms: `${project.shortdesc} ${project.stack.join(' ')} ${project.id}`, kind: 'project' }))
 ];
 function renderCommands() {
@@ -311,89 +338,11 @@ commandDialog.addEventListener('cancel', event => { event.preventDefault(); clos
 commandDialog.addEventListener('click', event => { if (event.target === commandDialog) { const r = commandDialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closeCommand(); } });
 addEventListener('keydown', event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); if (commandDialog.open) closeCommand(); else openCommand(); } });
 
-// A small working playground, with explicitly local API simulation.
-const labScene = $('.playground-scene');
-const labRange = $('#lab-range');
-const labOutput = $('#range-output');
-const labCode = $('[data-lab-code]');
-let labMode = 'components';
-let narrowLayout = false;
-let layoutWidth = innerWidth < 760 ? 83 : 78;
-let apiTimer = 0;
-const labValues = { components: 16, motion: 14 };
-const labNode = { x: 200, y: 150, tx: 200, ty: 150, vx: 0, vy: 0 };
-function setLabMode(mode) {
-  labMode = mode;
-  $$('.skill-tab').forEach(tab => { const active = tab.dataset.skill === mode; tab.classList.toggle('is-active', active); tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; });
-  $('#skill-panel').setAttribute('aria-labelledby', `tab-${mode}`);
-  labScene.dataset.labMode = mode;
-  $('.playground-controls').hidden = mode === 'systems';
-  if (mode !== 'systems') {
-    labRange.min = mode === 'motion' ? '5' : '0'; labRange.max = mode === 'motion' ? '30' : '40'; labRange.value = labValues[mode];
-    $('[data-range-label]').textContent = mode === 'motion' ? 'Сопротивление' : 'Радиус';
-    labRange.setAttribute('aria-label', mode === 'motion' ? 'Сопротивление пружинного движения' : 'Радиус скругления демонстрационного компонента');
-    updateLabRange();
-  } else labCode.textContent = 'await demo.request(); // локальная симуляция API';
-}
-function updateLabRange() {
-  labValues[labMode] = Number(labRange.value);
-  if (labMode === 'components') {
-    labOutput.textContent = `${labRange.value} px`;
-    $('.demo-card').style.borderRadius = `${labRange.value}px`;
-    labCode.textContent = `const interface = { radius: ${labRange.value}, responsive: true };`;
-  } else {
-    labOutput.textContent = labRange.value;
-    labCode.textContent = `spring({ stiffness: 160, damping: ${labRange.value} });`;
-  }
-}
-labRange.addEventListener('input', updateLabRange);
-$$('.skill-tab').forEach(tab => {
-  tab.addEventListener('click', () => setLabMode(tab.dataset.skill));
-  tab.addEventListener('keydown', event => {
-    if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key)) return;
-    event.preventDefault(); const tabs = $$('.skill-tab'); const n = tabs.indexOf(tab); const step = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1; const next = tabs[(n + step + tabs.length) % tabs.length]; setLabMode(next.dataset.skill); next.focus();
-  });
-});
-$('[data-layout-toggle]').addEventListener('click', event => {
-  narrowLayout = !narrowLayout;
-  event.currentTarget.setAttribute('aria-pressed', String(narrowLayout));
-  event.currentTarget.setAttribute('aria-label', narrowLayout ? 'Переключить демонстрацию на широкий экран' : 'Переключить демонстрацию на узкий экран');
-});
-$('.demo-motion').addEventListener('pointermove', event => {
-  const r = labScene.getBoundingClientRect(); labNode.tx = clamp(event.clientX - r.left, 30, r.width - 30); labNode.ty = clamp(event.clientY - r.top, 30, r.height - 50);
-}, { passive: true });
-$('.demo-motion').addEventListener('pointerdown', event => {
-  const r = labScene.getBoundingClientRect(); labNode.tx = clamp(event.clientX - r.left, 30, r.width - 30); labNode.ty = clamp(event.clientY - r.top, 30, r.height - 50);
-}, { passive: true });
-$('.demo-motion').addEventListener('keydown', event => {
-  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(event.key)) return;
-  event.preventDefault();
-  const r = labScene.getBoundingClientRect();
-  if (event.key === 'Home') { labNode.tx = r.width / 2; labNode.ty = r.height / 2; }
-  if (event.key === 'ArrowLeft') labNode.tx -= 28;
-  if (event.key === 'ArrowRight') labNode.tx += 28;
-  if (event.key === 'ArrowUp') labNode.ty -= 28;
-  if (event.key === 'ArrowDown') labNode.ty += 28;
-  labNode.tx = clamp(labNode.tx, 30, r.width - 30);
-  labNode.ty = clamp(labNode.ty, 30, r.height - 50);
-});
-$('.api-demo-trigger').addEventListener('click', () => {
-  const button = $('.api-demo-trigger'); button.disabled = true; button.setAttribute('aria-busy', 'true'); $('.playground').classList.add('is-requesting'); $('.api-status').textContent = 'Запрос → обработка → ответ…'; labCode.textContent = 'const response = await demo.request();';
-  clearTimeout(apiTimer);
-  apiTimer = setTimeout(() => { button.disabled = false; button.removeAttribute('aria-busy'); $('.playground').classList.remove('is-requesting'); $('.api-status').textContent = 'Готово. Данные получены, интерфейс обновлён.'; if (labMode === 'systems') labCode.textContent = '{ "source": "local-demo", "status": "ready", "ui": "updated" }'; }, motionPreference.matches ? 0 : 850);
-});
-
-let toastTimer = 0;
-function toast(message) { const element = $('.toast'); element.textContent = message; element.classList.add('is-visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => element.classList.remove('is-visible'), 3500); }
-$('[data-copy-profile]').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText('https://github.com/aremakk'); toast('Ссылка на профиль скопирована'); }
-  catch { toast('github.com/aremakk — ссылка доступна рядом'); }
-});
-$('[data-print-resume]').addEventListener('click', () => {
-  const content = ['@aremakk — Frontend-разработчик','React · TypeScript · UI · адаптивные интерфейсы','GitHub: https://github.com/aremakk','', 'Создаю выразительные интерфейсы и связываю экраны с данными. Дополнительный опыт: Java / Spring Boot, PostgreSQL, Expo.','',...projects.flatMap(project => [project.title,project.type,`Роль: ${project.role}`,`Задача: ${project.task}`,`Решение: ${project.solution}`, ...project.sources.map(source => `${source.label}: ${source.url}`),''])].join('\n');
-  const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
-  const a = document.createElement('a'); a.href = url; a.download = 'aremakk-frontend-resume.txt'; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000); toast('Краткое резюме сохранено в TXT');
-});
+// Career starts January 2025; the month in progress counts, as on the resume.
+const today = new Date();
+const careerMonths = (today.getFullYear() - 2025) * 12 + today.getMonth() + 1;
+$$('[data-experience-years]').forEach(element => { element.textContent = (Math.floor(careerMonths * 10 / 12) / 10).toLocaleString('ru-RU'); });
+$$('[data-experience]').forEach(element => { element.textContent = `'${Math.floor(careerMonths / 12)} г. ${careerMonths % 12} мес.'`; });
 
 function animateUI(dt) {
   const instant = paused || motionPreference.matches;
@@ -416,7 +365,46 @@ function animateUI(dt) {
     });
     arrivals.forEach((element, i) => { const p = instant ? 1 : ease(clamp((introTime - .25 - i * .045) / .95)); element.style.opacity = p; element.style.translate = `0 ${(1 - p) * 12}px`; });
     introDone = instant || introTime > 1.3 + letters.length * .026;
+    if (introDone) hero.classList.add('intro-done');
+  } else {
+    animateLetters(instant, smoothing);
   }
+  sceneIntro = instant ? 1 : Math.min(1, sceneIntro + dt / 2.6);
+  if (wave.strength) { wave.age += dt; if (wave.age > 4) wave.strength = 0; }
+  if (finePointer.matches && !instant) {
+    hero.style.setProperty('--glow-x', `${follower.x}px`);
+    hero.style.setProperty('--glow-y', `${follower.y + scrollY}px`);
+  }
+  animateUIRest(dt, instant, smoothing);
+}
+
+// Letters lean away from the cursor and warm up as it passes over the heading.
+function animateLetters(instant, smoothing) {
+  const near = pointer.active && finePointer.matches && !instant && scrollY < heroHeight * .6;
+  const rects = near ? letters.map(item => item.mask.getBoundingClientRect()) : null;
+  letters.forEach((item, index) => {
+    let tx = 0, ty = 0, tr = 0, th = 0;
+    if (near) {
+      const r = rects[index];
+      const dx = r.left + r.width / 2 - pointer.x;
+      const dy = r.top + r.height / 2 - pointer.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      const force = Math.exp(-(distance * distance) / (2 * 120 * 120));
+      tx = dx / distance * force * 6;
+      ty = -force * 14 + dy / distance * force * 3;
+      tr = dx / distance * force * 4;
+      th = force * .9;
+    }
+    item.x += (tx - item.x) * smoothing * .6;
+    item.y += (ty - item.y) * smoothing * .6;
+    item.r += (tr - item.r) * smoothing * .6;
+    item.heat += (th - item.heat) * smoothing * .6;
+    item.element.style.transform = `translate3d(${item.x.toFixed(2)}px,${item.y.toFixed(2)}px,0) rotate(${item.r.toFixed(2)}deg)`;
+    item.element.style.setProperty('--heat', item.heat.toFixed(3));
+  });
+}
+
+function animateUIRest(dt, instant, smoothing) {
   reveals.forEach(item => {
     if (!item.visible || item.done) return;
     item.t += dt;
@@ -443,17 +431,6 @@ function animateUI(dt) {
     const orbit = $('.ai-orbit', item.element);
     if (orbit) orbit.style.transform = `rotate(${25 + item.x * 30}deg)`;
   });
-  const targetWidth = innerWidth < 760 ? (narrowLayout ? 68 : 83) : (narrowLayout ? 53 : 78);
-  layoutWidth += (targetWidth - layoutWidth) * smoothing;
-  $('.demo-components').style.width = `${layoutWidth}%`;
-  if (labMode === 'motion') {
-    if (instant) { labNode.x = labNode.tx; labNode.y = labNode.ty; labNode.vx = 0; labNode.vy = 0; }
-    else {
-      const step = Math.min(dt, .034); labNode.vx += (labNode.tx - labNode.x) * 160 * step; labNode.vy += (labNode.ty - labNode.y) * 160 * step;
-      labNode.vx *= Math.exp(-labValues.motion * step); labNode.vy *= Math.exp(-labValues.motion * step); labNode.x += labNode.vx * step; labNode.y += labNode.vy * step;
-    }
-    $('.spring-node').style.transform = `translate3d(${labNode.x - 27.5}px,${labNode.y - 27.5}px,0) rotate(${clamp(labNode.vx * .025, -20, 20)}deg)`;
-  }
 }
 
 function tick(timestamp) {
@@ -465,19 +442,21 @@ function tick(timestamp) {
   }
   if (!paused && !motionPreference.matches) elapsed += dt;
   animateUI(dt);
-  scrollStory.update(scrollY, dt, paused || motionPreference.matches);
   $('.page-progress i').style.transform = `scaleX(${clamp(scrollY / maxScroll)})`;
   const heroVisible = scrollY < heroHeight;
   if (heroVisible) {
     normalized.x = clamp(pointer.x / innerWidth * 2 - 1, -1, 1); normalized.y = clamp(1 - pointer.y / innerHeight * 2, -1, 1);
     const heroProgress = clamp(scrollY / heroHeight);
     if (!paused || drawNeeded) {
-      scene.update(dt, elapsed, normalized, heroProgress, paused || motionPreference.matches);
-      drawNeeded = false;
+      scene.update(dt, elapsed, normalized, heroProgress, paused || motionPreference.matches, sceneIntro, wave);
+      drawNeeded = sceneIntro < 1 || wave.strength > 0;
     }
-    art.style.transform = paused || motionPreference.matches ? '' : `translate3d(0,${scrollY * .12}px,0)`;
-    $('.hero-heading').style.transform = paused || motionPreference.matches ? '' : `translate3d(0,${-scrollY * .09}px,0)`;
-    $('.hero-heading').style.opacity = String(clamp(1 - heroProgress * 1.15));
+    const still = paused || motionPreference.matches;
+    art.style.transform = still ? '' : `translate3d(0,${scrollY * .12}px,0)`;
+    heroHeading.style.transform = still ? '' : `translate3d(0,${-scrollY * .09}px,0)`;
+    heroHeading.style.opacity = String(clamp(1 - heroProgress * 1.15));
+    headlineMain.style.translate = still ? '' : `${-heroProgress * 9}vw 0`;
+    headlineSerif.style.translate = still ? '' : `${heroProgress * 12}vw 0`;
     $('[data-coord-x]').textContent = (pointer.x / innerWidth).toFixed(3); $('[data-coord-y]').textContent = (pointer.y / innerHeight).toFixed(3);
     if (!paused && realDt > .023 && realDt < .1) slowFrames++; else slowFrames = Math.max(0, slowFrames - .5);
     if (slowFrames > 100 && quality > .65) { quality = Math.max(.65, quality - .12); resizeNeeded = true; slowFrames = 0; }
@@ -488,5 +467,4 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) { cancelAnimationFrame(frame); frame = 0; lastTime = 0; }
   else if (!frame) { drawNeeded = true; frame = requestAnimationFrame(tick); }
 });
-setLabMode('components');
 frame = requestAnimationFrame(tick);
